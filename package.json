@@ -1,0 +1,17 @@
+{
+  "name": "podtrac-scraper",
+  "version": "0.0.1",
+  "description": "A webscraping application for collecting podtrac podcast statistics",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node ./index.js"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "cheerio": "^1.0.0-rc.2",
+    "dotenv": "^6.1.0",
+    "puppeteer": "^1.10.0"
+  }
+}
