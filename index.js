@@ -1,8 +1,20 @@
 require('dotenv').config();
+const fs = require('fs');
 const puppeteer = require('puppeteer');
 const url = 'https://publisher.podtrac.com/account/login'
 const email = process.env.PODTRAC_EMAIL; 
 const password = process.env.PODTRAC_PASSWORD;
+
+
+const saveDataToFile = (jsonData) => {
+  const dateString = new Date().toString().replace(/[\s\(\)\-\:]/g, '_');
+  fs.writeFile(`${__dirname}/podtrac_data_${dateString}.json`, JSON.stringify(jsonData), (err) => {
+    if (err) {
+      return console.log(`error occured saving to file: ${err}`);
+    }
+    console.log(`Parsed data written to file: podtrac_data_${dateString}.json`);
+  });
+}
 
 const loginToPodtrac = async () => {
   const browser = await puppeteer.launch({headless: false});
@@ -29,35 +41,27 @@ const loginToPodtrac = async () => {
   console.log(`New Page URL: ${page.url()}`);
 
  const tableHeaders = await page.evaluate(() => {
-  const ths = Array.from(document.querySelectorAll('.group-row th'))
-  return ths.map(th => {
-     const txt = th.innerText.replace('\t', '');
-     // return txt.replace(/<a [^>]+>[^<]*<\/a>/g, '').trim();
-     console.log(`table header text: ${txt}`);
-     return txt;
-  });
+  const groupRow = Array.from(document.querySelectorAll('.group-row'))[0];
+  const weeksInRange = [];
+  const year = new Date().getFullYear();
+  for (let i = 0; i < groupRow.children.length; i++) {
+    const child = groupRow.children[i];
+    if (child.className === 'group-label') continue;
+    if (child.innerText === 'All Time\t') continue;
+    let weekIdentifier = child.innerText.replace('\t', '');
+    weekIdentifier = `${weekIdentifier}/${year}`;
+    weeksInRange.push(weekIdentifier);
+  }
+  return weeksInRange;
 });
 
-const tableData = await page.evaluate(() => {
-  const tds = Array.from(document.querySelectorAll('.data-row td'))
-  return tds.map(td => {
-     const txt = td.innerText.replace('\t', '').replace('\n', '').replace(',', '');
-     // return txt.replace(/<a [^>]+>[^<]*<\/a>/g, '').trim();
-     let numericValue = 0;
-     if (txt !== '-') {
-       numericValue = Number.parseInt(txt, 10);
-     }
-     console.log(`table row data: ${numericValue}`);
-     return numericValue;
-  });
-});
 
-const tableDataRows = await page.evaluate(() => {
+const tableDataRows = await page.evaluate((tableHeadersRef) => {
   const rows = Array.from(document.querySelectorAll('.data-row'));
   const parsedRows = [];
   rows.map(row => {
-    //console.dir(row);
     const parsedRow = {};
+    const weeks = tableHeadersRef.slice(); // makes a copy of week ranges to consume
     let periodTotal = 0;
     for (let i = 0; i < row.children.length; i++) {
       const child = row.children[i];
@@ -80,29 +84,20 @@ const tableDataRows = await page.evaluate(() => {
             numericValue = Number.parseInt(weeklyDownloads, 10);
           }
           periodTotal += numericValue;
-          parsedRow[i.toString()] = numericValue;
+          parsedRow[weeks.shift()] = numericValue;
         }
       }
     }
     parsedRow.periodTotal = periodTotal;
     parsedRows.push(parsedRow);
-     // const txt = row.innerText.replace('\t', '').replace('\n', '').replace(',', '');
-     // return txt.replace(/<a [^>]+>[^<]*<\/a>/g, '').trim();
-     /*
-     let numericValue = 0;
-     if (txt !== '-') {
-       numericValue = Number.parseInt(txt, 10);
-     }
-     console.log(`table row data: ${numericValue}`);
-     return numericValue;
-     */
   });
   return parsedRows;
-});
+}, tableHeaders);
 
 console.dir(tableHeaders);
-console.dir(tableData);
 console.dir(tableDataRows);
+
+saveDataToFile(tableDataRows);
 }
 
 loginToPodtrac();
