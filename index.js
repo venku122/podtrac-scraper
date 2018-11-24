@@ -16,6 +16,19 @@ const saveDataToFile = (jsonData) => {
   });
 }
 
+const parseDailyCount = async (page, url) => {
+
+  await page.goto(url);
+  console.log('clicking on daily list');
+  await Promise.all([
+    page.waitForNavigation({ waitUntil: 'domcontentloaded' }),
+    page.$$eval('.report-period a', links => links[0].click()),
+  ]);
+  console.log(`New Page URL: ${page.url()}`);
+};
+
+
+
 const loginToPodtrac = async () => {
   const browser = await puppeteer.launch({headless: false});
   const page = await browser.newPage();
@@ -39,6 +52,9 @@ const loginToPodtrac = async () => {
     page.$$eval('.stats-cell a', links => links[1].click()),
   ]);
   console.log(`New Page URL: ${page.url()}`);
+  const statisticsPageURL = page.url();
+  const page2 = await browser.newPage();
+  parseDailyCount(page2, statisticsPageURL);
 
  const tableHeaders = await page.evaluate(() => {
   const groupRow = Array.from(document.querySelectorAll('.group-row'))[0];
