@@ -1,6 +1,7 @@
 require('dotenv').config();
 const fs = require('fs');
 const puppeteer = require('puppeteer');
+const { Episode } = require('./db');
 const url = 'https://publisher.podtrac.com/account/login'
 const email = process.env.PODTRAC_EMAIL; 
 const password = process.env.PODTRAC_PASSWORD;
@@ -16,9 +17,24 @@ const saveDataToFile = (jsonData) => {
   });
 }
 
+const saveEpisodeDataToDB = (episodeData) => {
+  for (let i = 0; i < episodeData.length; i++) {
+    const episodeInstance = new Episode(episodeData[i]);
+    episodeInstance.save((err, instance) => {
+      if (err) {
+        console.error(err);
+      }
+      console.log(`episode ${i} saved to mongodb: ${instance.name}`);
+    });
+  }
+}
+
 const parseDailyCount = async (page, url) => {
 
-  await page.goto(url);
+  await Promise.all([
+    page.waitForNavigation({ waitUntil: 'domcontentloaded' }),
+    await page.goto(url),
+  ]);
   console.log('clicking on daily list');
   await Promise.all([
     page.waitForNavigation({ waitUntil: 'domcontentloaded' }),
@@ -45,14 +61,17 @@ const parseDailyCount = async (page, url) => {
     const rows = Array.from(document.querySelectorAll('.data-row'));
     const parsedRows = [];
     rows.map(row => {
-      const parsedRow = {};
+      const parsedRow = {
+        name: 'undefined',
+        data: [],
+      };
       const days = tableHeadersRef.slice(); // makes a copy of week ranges to consume
       let periodTotal = 0;
       for (let i = 0; i < row.children.length; i++) {
         const child = row.children[i];
         if (child.tagName === 'TH') {
           let episodeName = child.innerText.replace('\t', '').replace('\n', '');
-          parsedRow.episode = episodeName;
+          parsedRow.name = episodeName;
         }
         if (child.tagName === 'TD') {
           if (child.className === 'total-cell') {
@@ -61,7 +80,7 @@ const parseDailyCount = async (page, url) => {
             if (total !== '-') {
               numericValue = Number.parseInt(total, 10);
             }
-            parsedRow.allTimeTotal = numericValue;
+            parsedRow.allTimeRecorded = numericValue;
           } else {
             let weeklyDownloads = child.innerText.replace('\t', '').replace('\n', '').replace(/,/g, '');
             let numericValue = 0;
@@ -69,11 +88,17 @@ const parseDailyCount = async (page, url) => {
               numericValue = Number.parseInt(weeklyDownloads, 10);
             }
             periodTotal += numericValue;
-            parsedRow[days.shift()] = numericValue;
+            const dateString = days.shift();
+            const downloadObj = {
+              dateString,
+              downloads: numericValue,
+              // date: new Date(dateString),
+            };
+            parsedRow.data.push(downloadObj);
           }
         }
       }
-      parsedRow.periodTotal = periodTotal;
+      // parsedRow.periodTotal = periodTotal;
       parsedRows.push(parsedRow);
     });
     return parsedRows;
@@ -83,6 +108,8 @@ const parseDailyCount = async (page, url) => {
   console.log('day info:');
   console.dir(tableHeaders);
   console.dir(tableDataRows);
+
+  saveEpisodeDataToDB(tableDataRows);
 };
 
 
@@ -134,14 +161,17 @@ const tableDataRows = await page.evaluate((tableHeadersRef) => {
   const rows = Array.from(document.querySelectorAll('.data-row'));
   const parsedRows = [];
   rows.map(row => {
-    const parsedRow = {};
+    const parsedRow = {
+      name: 'undefined',
+      data: [],
+    };
     const weeks = tableHeadersRef.slice(); // makes a copy of week ranges to consume
     let periodTotal = 0;
     for (let i = 0; i < row.children.length; i++) {
       const child = row.children[i];
       if (child.tagName === 'TH') {
         let episodeName = child.innerText.replace('\t', '').replace('\n', '');
-        parsedRow.episode = episodeName;
+        parsedRow.name = episodeName;
       }
       if (child.tagName === 'TD') {
         if (child.className === 'total-cell') {
@@ -150,7 +180,7 @@ const tableDataRows = await page.evaluate((tableHeadersRef) => {
           if (total !== '-') {
             numericValue = Number.parseInt(total, 10);
           }
-          parsedRow.allTimeTotal = numericValue;
+          parsedRow.allTimeRecorded = numericValue;
         } else {
           let weeklyDownloads = child.innerText.replace('\t', '').replace('\n', '').replace(/,/g, '');
           let numericValue = 0;
@@ -158,11 +188,17 @@ const tableDataRows = await page.evaluate((tableHeadersRef) => {
             numericValue = Number.parseInt(weeklyDownloads, 10);
           }
           periodTotal += numericValue;
-          parsedRow[weeks.shift()] = numericValue;
+          const dateString = weeks.shift();
+          const downloadObj = {
+            dateString,
+            downloads: numericValue,
+            date: new Date(dateString),
+          };
+          parsedRow.data.push(downloadObj);
         }
       }
     }
-    parsedRow.periodTotal = periodTotal;
+    // parsedRow.periodTotal = periodTotal;
     parsedRows.push(parsedRow);
   });
   return parsedRows;

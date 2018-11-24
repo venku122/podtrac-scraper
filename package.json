@@ -12,6 +12,7 @@
   "dependencies": {
     "cheerio": "^1.0.0-rc.2",
     "dotenv": "^6.1.0",
+    "mongoose": "^5.3.13",
     "puppeteer": "^1.10.0"
   }
 }
