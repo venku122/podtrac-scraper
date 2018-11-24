@@ -25,6 +25,64 @@ const parseDailyCount = async (page, url) => {
     page.$$eval('.report-period a', links => links[0].click()),
   ]);
   console.log(`New Page URL: ${page.url()}`);
+
+  const tableHeaders = await page.evaluate(() => {
+    const groupRow = Array.from(document.querySelectorAll('.group-row'))[0];
+    const daysInRange = [];
+    const year = new Date().getFullYear();
+    for (let i = 0; i < groupRow.children.length; i++) {
+      const child = groupRow.children[i];
+      if (child.className === 'group-label') continue;
+      if (child.innerText === 'All Time\t') continue;
+      let dayIdentifier = child.innerText.replace('\t', '');
+      dayIdentifier = `${dayIdentifier}/${year}`;
+      daysInRange.push(dayIdentifier);
+    }
+    return daysInRange;
+  });
+
+  const tableDataRows = await page.evaluate((tableHeadersRef) => {
+    const rows = Array.from(document.querySelectorAll('.data-row'));
+    const parsedRows = [];
+    rows.map(row => {
+      const parsedRow = {};
+      const days = tableHeadersRef.slice(); // makes a copy of week ranges to consume
+      let periodTotal = 0;
+      for (let i = 0; i < row.children.length; i++) {
+        const child = row.children[i];
+        if (child.tagName === 'TH') {
+          let episodeName = child.innerText.replace('\t', '').replace('\n', '');
+          parsedRow.episode = episodeName;
+        }
+        if (child.tagName === 'TD') {
+          if (child.className === 'total-cell') {
+            let total = child.innerText.replace('\t', '').replace('\n', '').replace(/,/g, '');
+            let numericValue = 0;
+            if (total !== '-') {
+              numericValue = Number.parseInt(total, 10);
+            }
+            parsedRow.allTimeTotal = numericValue;
+          } else {
+            let weeklyDownloads = child.innerText.replace('\t', '').replace('\n', '').replace(/,/g, '');
+            let numericValue = 0;
+            if (weeklyDownloads !== '-') {
+              numericValue = Number.parseInt(weeklyDownloads, 10);
+            }
+            periodTotal += numericValue;
+            parsedRow[days.shift()] = numericValue;
+          }
+        }
+      }
+      parsedRow.periodTotal = periodTotal;
+      parsedRows.push(parsedRow);
+    });
+    return parsedRows;
+  }, tableHeaders);
+
+
+  console.log('day info:');
+  console.dir(tableHeaders);
+  console.dir(tableDataRows);
 };
 
 
