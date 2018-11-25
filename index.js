@@ -1,7 +1,10 @@
 require('dotenv').config();
 const fs = require('fs');
 const puppeteer = require('puppeteer');
-const { Episode } = require('./db');
+const {
+  Episode,
+  saveDownloadForEpisode
+} = require('./db');
 const url = 'https://publisher.podtrac.com/account/login'
 const email = process.env.PODTRAC_EMAIL; 
 const password = process.env.PODTRAC_PASSWORD;
@@ -17,7 +20,7 @@ const saveDataToFile = (jsonData) => {
   });
 }
 
-const saveEpisodeDataToDB = (episodeData) => {
+const saveEpisodeDataToMongoDB = (episodeData) => {
   for (let i = 0; i < episodeData.length; i++) {
     const episodeInstance = new Episode(episodeData[i]);
     episodeInstance.save((err, instance) => {
@@ -26,6 +29,20 @@ const saveEpisodeDataToDB = (episodeData) => {
       }
       console.log(`episode ${i} saved to mongodb: ${instance.name}`);
     });
+  }
+}
+
+const saveEpisodeDataToPostgresDB = async (episodeData) => {
+  for (let i = 0; i < episodeData.length; i++) {
+    const downloadRecord = episodeData[i];
+    const episodeName = downloadRecord.name;
+    for (let j = 0; j < downloadRecord.data.length; j++) {
+      const downloadDailyInfo = downloadRecord.data[j];
+      const date = downloadDailyInfo.dateString;
+      const downloads = downloadDailyInfo.downloads;
+      console.log(`saving download data for episode: ${episodeName} on ${date}: ${downloads}`);
+      await saveDownloadForEpisode(episodeName, date, downloads);
+    }
   }
 }
 
@@ -88,11 +105,12 @@ const parseDailyCount = async (page, url) => {
               numericValue = Number.parseInt(weeklyDownloads, 10);
             }
             periodTotal += numericValue;
-            const dateString = days.shift();
+            const inputDate = days.shift();
+            const postgresDate = inputDate.replace(/(\d\d)\/(\d\d)\/(\d{4})/, "$3-$1-$2");
             const downloadObj = {
-              dateString,
+              dateString: postgresDate,
               downloads: numericValue,
-              // date: new Date(dateString),
+              // date: postgresDate,
             };
             parsedRow.data.push(downloadObj);
           }
@@ -109,7 +127,8 @@ const parseDailyCount = async (page, url) => {
   console.dir(tableHeaders);
   console.dir(tableDataRows);
 
-  saveEpisodeDataToDB(tableDataRows);
+  // saveEpisodeDataToMongoDB(tableDataRows);
+  saveEpisodeDataToPostgresDB(tableDataRows);
 };
 
 
@@ -207,7 +226,7 @@ const tableDataRows = await page.evaluate((tableHeadersRef) => {
 console.dir(tableHeaders);
 console.dir(tableDataRows);
 
-saveDataToFile(tableDataRows);
+// saveDataToFile(tableDataRows);
 }
 
 loginToPodtrac();
