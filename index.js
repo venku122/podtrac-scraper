@@ -1,6 +1,7 @@
 require('dotenv').config();
 const fs = require('fs');
 const puppeteer = require('puppeteer');
+const schedule = require('node-schedule');
 const {
   Episode,
   saveDownloadForEpisode
@@ -46,121 +47,93 @@ const saveEpisodeDataToPostgresDB = async (episodeData) => {
   }
 }
 
+parseDailyHeaders = () => {
+  const groupRow = Array.from(document.querySelectorAll('.group-row'))[0];
+  const daysInRange = [];
+  const year = new Date().getFullYear();
+  for (let i = 0; i < groupRow.children.length; i++) {
+    const child = groupRow.children[i];
+    if (child.className === 'group-label') continue;
+    if (child.innerText === 'All Time\t') continue;
+    let dayIdentifier = child.innerText.replace('\t', '');
+    dayIdentifier = `${dayIdentifier}/${year}`;
+    daysInRange.push(dayIdentifier);
+  }
+  return daysInRange;
+};
+
+parseDailyDataTable = (tableHeadersRef) => {
+  const rows = Array.from(document.querySelectorAll('.data-row'));
+  const parsedRows = [];
+  rows.map(row => {
+    const parsedRow = {
+      name: 'undefined',
+      data: [],
+    };
+    const days = tableHeadersRef.slice(); // makes a copy of week ranges to consume
+    let periodTotal = 0;
+    for (let i = 0; i < row.children.length; i++) {
+      const child = row.children[i];
+      if (child.tagName === 'TH') {
+        let episodeName = child.innerText.replace('\t', '').replace('\n', '');
+        parsedRow.name = episodeName;
+      }
+      if (child.tagName === 'TD') {
+        if (child.className === 'total-cell') {
+          let total = child.innerText.replace('\t', '').replace('\n', '').replace(/,/g, '');
+          let numericValue = 0;
+          if (total !== '-') {
+            numericValue = Number.parseInt(total, 10);
+          }
+          parsedRow.allTimeRecorded = numericValue;
+        } else {
+          let weeklyDownloads = child.innerText.replace('\t', '').replace('\n', '').replace(/,/g, '');
+          let numericValue = 0;
+          if (weeklyDownloads !== '-') {
+            numericValue = Number.parseInt(weeklyDownloads, 10);
+          }
+          periodTotal += numericValue;
+          const inputDate = days.shift();
+          const postgresDate = inputDate.replace(/(\d\d)\/(\d\d)\/(\d{4})/, "$3-$1-$2");
+          const downloadObj = {
+            dateString: postgresDate,
+            downloads: numericValue,
+          };
+          parsedRow.data.push(downloadObj);
+        }
+      }
+    }
+    // parsedRow.periodTotal = periodTotal;
+    parsedRows.push(parsedRow);
+  });
+  return parsedRows;
+};
+
 const parseDailyCount = async (page, url) => {
 
   await Promise.all([
     page.waitForNavigation({ waitUntil: 'domcontentloaded' }),
     await page.goto(url),
   ]);
-  console.log('clicking on daily list');
+  console.log('Clicking on daily episode table');
   await Promise.all([
     page.waitForNavigation({ waitUntil: 'domcontentloaded' }),
     page.$$eval('.report-period a', links => links[0].click()),
   ]);
   console.log(`New Page URL: ${page.url()}`);
 
-  const tableHeaders = await page.evaluate(() => {
-    const groupRow = Array.from(document.querySelectorAll('.group-row'))[0];
-    const daysInRange = [];
-    const year = new Date().getFullYear();
-    for (let i = 0; i < groupRow.children.length; i++) {
-      const child = groupRow.children[i];
-      if (child.className === 'group-label') continue;
-      if (child.innerText === 'All Time\t') continue;
-      let dayIdentifier = child.innerText.replace('\t', '');
-      dayIdentifier = `${dayIdentifier}/${year}`;
-      daysInRange.push(dayIdentifier);
-    }
-    return daysInRange;
-  });
-
-  const tableDataRows = await page.evaluate((tableHeadersRef) => {
-    const rows = Array.from(document.querySelectorAll('.data-row'));
-    const parsedRows = [];
-    rows.map(row => {
-      const parsedRow = {
-        name: 'undefined',
-        data: [],
-      };
-      const days = tableHeadersRef.slice(); // makes a copy of week ranges to consume
-      let periodTotal = 0;
-      for (let i = 0; i < row.children.length; i++) {
-        const child = row.children[i];
-        if (child.tagName === 'TH') {
-          let episodeName = child.innerText.replace('\t', '').replace('\n', '');
-          parsedRow.name = episodeName;
-        }
-        if (child.tagName === 'TD') {
-          if (child.className === 'total-cell') {
-            let total = child.innerText.replace('\t', '').replace('\n', '').replace(/,/g, '');
-            let numericValue = 0;
-            if (total !== '-') {
-              numericValue = Number.parseInt(total, 10);
-            }
-            parsedRow.allTimeRecorded = numericValue;
-          } else {
-            let weeklyDownloads = child.innerText.replace('\t', '').replace('\n', '').replace(/,/g, '');
-            let numericValue = 0;
-            if (weeklyDownloads !== '-') {
-              numericValue = Number.parseInt(weeklyDownloads, 10);
-            }
-            periodTotal += numericValue;
-            const inputDate = days.shift();
-            const postgresDate = inputDate.replace(/(\d\d)\/(\d\d)\/(\d{4})/, "$3-$1-$2");
-            const downloadObj = {
-              dateString: postgresDate,
-              downloads: numericValue,
-              // date: postgresDate,
-            };
-            parsedRow.data.push(downloadObj);
-          }
-        }
-      }
-      // parsedRow.periodTotal = periodTotal;
-      parsedRows.push(parsedRow);
-    });
-    return parsedRows;
-  }, tableHeaders);
+  const dailyTableHeaders = await page.evaluate(parseDailyHeaders);
+  const dailyTableData = await page.evaluate(parseDailyDataTable, dailyTableHeaders);
 
 
   console.log('day info:');
-  console.dir(tableHeaders);
-  console.dir(tableDataRows);
+  console.dir(dailyTableHeaders);
+  console.dir(dailyTableData);
 
-  // saveEpisodeDataToMongoDB(tableDataRows);
-  saveEpisodeDataToPostgresDB(tableDataRows);
+  saveEpisodeDataToPostgresDB(dailyTableData);
 };
 
-
-
-const loginToPodtrac = async () => {
-  const browser = await puppeteer.launch({headless: false});
-  const page = await browser.newPage();
-  console.log('puppeteer browser is live');
-  await page.goto(url);
-  console.log('puppeteer loaded login page');
-  await page.type('#Email', email);
-  await page.type('#ClearPasscode', password);
-  console.log('form button clicked');
-  await Promise.all([
-    page.waitForNavigation({ waitUntil: 'domcontentloaded' }),
-    await page.click('.button'),
-  ]);
-
-  console.log(`New Page URL: ${page.url()}`);
-  const dashboardURl = page.url();
-
-  console.log('clicking on episode playcount');
-  await Promise.all([
-    page.waitForNavigation({ waitUntil: 'domcontentloaded' }),
-    page.$$eval('.stats-cell a', links => links[1].click()),
-  ]);
-  console.log(`New Page URL: ${page.url()}`);
-  const statisticsPageURL = page.url();
-  const page2 = await browser.newPage();
-  parseDailyCount(page2, statisticsPageURL);
-
- const tableHeaders = await page.evaluate(() => {
+const parseWeeklyHeaders = () => {
   const groupRow = Array.from(document.querySelectorAll('.group-row'))[0];
   const weeksInRange = [];
   const year = new Date().getFullYear();
@@ -173,10 +146,9 @@ const loginToPodtrac = async () => {
     weeksInRange.push(weekIdentifier);
   }
   return weeksInRange;
-});
+};
 
-
-const tableDataRows = await page.evaluate((tableHeadersRef) => {
+const parseWeeklyDataTable = (tableHeadersRef) => {
   const rows = Array.from(document.querySelectorAll('.data-row'));
   const parsedRows = [];
   rows.map(row => {
@@ -221,12 +193,48 @@ const tableDataRows = await page.evaluate((tableHeadersRef) => {
     parsedRows.push(parsedRow);
   });
   return parsedRows;
-}, tableHeaders);
+};
 
-console.dir(tableHeaders);
-console.dir(tableDataRows);
+const loginToPodtrac = async () => {
+  console.log(`Starting scrape of Podtrac at ${new Date().toString()}`);
+  const browser = await puppeteer.launch({headless: true});
+  const page = await browser.newPage();
 
-// saveDataToFile(tableDataRows);
+  console.log('Puppeteer browser is live');
+  await page.goto(url);
+  console.log('Puppeteer loaded login page');
+
+  await page.type('#Email', email);
+  await page.type('#ClearPasscode', password);
+  console.log('Login form button clicked');
+
+  await Promise.all([
+    page.waitForNavigation({ waitUntil: 'domcontentloaded' }),
+    await page.click('.button'),
+  ]);
+  console.log(`New Page URL: ${page.url()}`);
+
+  console.log('Clicking on episode playcount');
+  await Promise.all([
+    page.waitForNavigation({ waitUntil: 'domcontentloaded' }),
+    page.$$eval('.stats-cell a', links => links[1].click()),
+  ]);
+
+  console.log(`New Page URL: ${page.url()}`);
+  const statisticsPageURL = page.url();
+  const page2 = await browser.newPage(); // scrape the episodes page
+  parseDailyCount(page2, statisticsPageURL);
+
+  const weeklyTableHeaders = await page.evaluate(parseWeeklyHeaders);
+  const weeklyTableData = await page.evaluate(parseWeeklyDataTable, weeklyTableHeaders);
+
+  console.dir(weeklyTableHeaders);
+  console.dir(weeklyTableData);
 }
 
 loginToPodtrac();
+
+const scrapePodtracNightly = schedule.scheduleJob('5 2 * * *', loginToPodtrac); // scrape new data at 2:05am
+const scrapePodtracDaily = schedule.scheduleJob('5 17 * * *', loginToPodtrac); // scrape new data at 5:05pm
+
+console.log(`Scrapings scheduled for ${scrapePodtracNightly.nextInvocation()} and ${scrapePodtracDaily.nextInvocation()}`);
