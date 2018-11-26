@@ -41,8 +41,7 @@ const saveEpisodeDataToPostgresDB = async (episodeData) => {
       const downloadDailyInfo = downloadRecord.data[j];
       const date = downloadDailyInfo.dateString;
       const downloads = downloadDailyInfo.downloads;
-      console.log(`saving download data for episode: ${episodeName} on ${date}: ${downloads}`);
-      await saveDownloadForEpisode(episodeName, date, downloads);
+      saveDownloadForEpisode(episodeName, date, downloads);
     }
   }
 }

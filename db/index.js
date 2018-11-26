@@ -45,8 +45,7 @@ pool.on('error', (err, client) => {
   }
 })().catch(e => console.log(e.stack))
 
-const getEpisodeFromName = async (episodeName) => {
-  const client = await pool.connect();
+const getEpisodeFromName = async (episodeName, client) => {
   const cleanEpisodeName = episodeName.replace(/[\'\"]/g, '');
   try {
     const episodes = await client.query(`
@@ -54,13 +53,12 @@ const getEpisodeFromName = async (episodeName) => {
     FROM "Episodes"
     WHERE "name" = '${cleanEpisodeName}'`);
     return episodes.rows[0];
-  } finally {
-    client.release()
+  } catch (err) {
+    console.log(`error: ${err}`);
   }
 }
 
-const createEpisodeRecord = async (episodeName) => {
-  const client = await pool.connect();
+const createEpisodeRecord = async (episodeName, client) => {
   try {
     const currentDate = Date.now();
     const cleanEpisodeName = episodeName.replace(/[\'\"]/g, '');
@@ -72,13 +70,12 @@ const createEpisodeRecord = async (episodeName) => {
     RETURNING "id"
     `);
     return episode.rows[0];
-  } finally {
-    client.release()
+  } catch (err) {
+    console.log(`error: ${err}`);
   }
 }
 
-const getDownloadRecordByID = async (downloadID) => {
-  const client = await pool.connect();
+const getDownloadRecordByID = async (downloadID, client) => {
   try {
     const downloadRecord = await client.query(`
     SELECT "id"
@@ -87,8 +84,8 @@ const getDownloadRecordByID = async (downloadID) => {
     "id" = '${downloadID}'
     `);
     return downloadRecord.rows[0];
-  } finally {
-    client.release()
+  } catch (err) {
+    console.log(`error: ${err}`);
   }
 }
 
@@ -98,15 +95,16 @@ const generateDownloadID = (episodeId, date) => {
 }
 
 const saveDownloadForEpisode = async (episodeName, date, downloadCount) => {
-  let episode = await getEpisodeFromName(episodeName);
+  const client = await pool.connect();
+  console.log(`Saving download data for episode: ${episodeName} on ${date}: ${downloadCount}`);
+  let episode = await getEpisodeFromName(episodeName, client);
   if (!episode) {
-    episode = await createEpisodeRecord(episodeName);
+    episode = await createEpisodeRecord(episodeName, client);
   }
   const episodeID = episode.id;
   const downloadID = generateDownloadID(episode.id, date);
-  const client = await pool.connect();
   try {
-    const existingDownloadRecord = await getDownloadRecordByID(downloadID);
+    const existingDownloadRecord = await getDownloadRecordByID(downloadID, client);
     let downloadRecord = null;
     if (!existingDownloadRecord) {
       downloadRecord = await client.query(`
