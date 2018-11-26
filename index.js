@@ -2,14 +2,16 @@ require('dotenv').config();
 const fs = require('fs');
 const puppeteer = require('puppeteer');
 const schedule = require('node-schedule');
+const express = require('express')
 const {
   Episode,
-  saveDownloadForEpisode
+  saveDownloadForEpisode,
+  getEpisodeCount,
+  getDownloadDataCount,
 } = require('./db');
 const url = 'https://publisher.podtrac.com/account/login'
 const email = process.env.PODTRAC_EMAIL; 
 const password = process.env.PODTRAC_PASSWORD;
-
 
 const saveDataToFile = (jsonData) => {
   const dateString = new Date().toString().replace(/[\s\(\)\-\:]/g, '_');
@@ -231,9 +233,44 @@ const loginToPodtrac = async () => {
   console.dir(weeklyTableData);
 }
 
-loginToPodtrac();
-
 const scrapePodtracNightly = schedule.scheduleJob('5 2 * * *', loginToPodtrac); // scrape new data at 2:05am
 const scrapePodtracDaily = schedule.scheduleJob('5 17 * * *', loginToPodtrac); // scrape new data at 5:05pm
+
+const app = express()
+const port = process.env.PORT ? process.env.PORT : 3000;
+
+app.get('/triggerScrape', (req, res) => {
+  loginToPodtrac();
+  console.log('PodTrac scrape initiated off-schedule');
+  res.status(200).send({
+    message: 'PodTrac scrape initiated off-schedule'
+  });
+});
+
+app.get('/episodeCount', async (req, res) => {
+  const episodeCount = await getEpisodeCount();
+  res.status(200).send({
+    episodeRecords: episodeCount,
+  });
+});
+
+
+app.get('/downloadDataCount', async (req, res) => {
+  const downloadCount = await getDownloadDataCount();
+  res.status(200).send({
+    downloadRecords: downloadCount,
+  });
+});
+
+app.get('/nextScheduledScrape', (req, res) => {
+  res.status(200).send({
+    scheduledScrapes: [
+      scrapePodtracDaily.nextInvocation(),
+      scrapePodtracNightly.nextInvocation(),
+    ],
+  });
+});
+
+app.listen(port, () => console.log(`Podtrac Scraper listening on port ${port}!`));
 
 console.log(`Scrapings scheduled for ${scrapePodtracNightly.nextInvocation()} and ${scrapePodtracDaily.nextInvocation()}`);

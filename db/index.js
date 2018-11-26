@@ -32,18 +32,27 @@ pool.on('error', (err, client) => {
   // process.exit(-1)
 });
 
-// async/await - check out a client
-(async () => {
+const getEpisodeCount = async () => {
   const client = await pool.connect();
   try {
     const episodes = await client.query('SELECT COUNT(*) FROM "Episodes"');
     console.log(`number of episodes in postgres: ${episodes.rows[0].count}`)
-    const downloads = await client.query('SELECT COUNT(*) FROM "Downloads"');
-    console.log(`number of data points: ${downloads.rows[0].count}`);
+    return episodes.rows[0].count;
   } finally {
     client.release()
   }
-})().catch(e => console.log(e.stack))
+}
+
+const getDownloadDataCount = async () => {
+  const client = await pool.connect();
+  try {
+    const downloads = await client.query('SELECT COUNT(*) FROM "Downloads"');
+    console.log(`number of data points: ${downloads.rows[0].count}`);
+    return downloads.rows[0].count;
+  } finally {
+    client.release()
+  }
+}
 
 const getEpisodeFromName = async (episodeName, client) => {
   const cleanEpisodeName = episodeName.replace(/[\'\"]/g, '');
@@ -132,4 +141,6 @@ const saveDownloadForEpisode = async (episodeName, date, downloadCount) => {
 module.exports = {
   Episode,
   saveDownloadForEpisode,
+  getEpisodeCount,
+  getDownloadDataCount,
 };
